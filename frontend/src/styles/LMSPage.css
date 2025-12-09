@@ -1,10 +1,10 @@
 .lms-hero {
   background: linear-gradient(135deg, #1890ff 0%, #096dd9 100%);
   color: white;
-  padding: 80px 0;
+  padding: 50px 0;
   text-align: center;
   border-radius: 8px;
-  margin-bottom: 40px;
+  margin-bottom: 20px;
 }
 
 .lms-hero h1 {

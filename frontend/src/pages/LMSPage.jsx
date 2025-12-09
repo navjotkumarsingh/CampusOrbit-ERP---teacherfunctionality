@@ -1,10 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Row, Col, Card, Button, Typography, Input, Tag, Spin, Empty, Modal, Divider } from 'antd';
+import { Row, Col, Card, Button, Typography, Tag, Spin, Empty, Modal, Divider } from 'antd';
 import {
-  TeamOutlined,
-  ClockCircleOutlined,
-  CheckCircleOutlined,
-  SearchOutlined,
   YoutubeOutlined,
   FileOutlined,
   PlayCircleOutlined
@@ -13,12 +9,10 @@ import api from '../utils/api';
 import '../styles/LMSPage.css';
 
 const { Title, Text, Paragraph } = Typography;
-const { Search } = Input;
 
 const LMSPage = ({ user }) => {
   const [resources, setResources] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
   const [selectedResource, setSelectedResource] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
 
@@ -41,6 +35,13 @@ const LMSPage = ({ user }) => {
     }
   };
 
+  // ✅ FIXED REGEXP (No ESLint warnings)
+  const getYoutubeVideoId = (url) => {
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const match = url.match(regExp);
+    return match && match[2].length === 11 ? match[2] : null;
+  };
+
   const getResourceIcon = (type) => {
     switch (type) {
       case 'youtube_link':
@@ -55,17 +56,8 @@ const LMSPage = ({ user }) => {
     }
   };
 
-  const getYoutubeVideoId = (url) => {
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-    const match = url.match(regExp);
-    return match && match[2].length === 11 ? match[2] : null;
-  };
-
-  const filteredResources = resources.filter(resource =>
-    resource.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    resource.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    resource.course?.courseName?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // No search functionality → show all resources
+  const filteredResources = resources;
 
   // Hero Section
   const HeroSection = () => (
@@ -77,24 +69,15 @@ const LMSPage = ({ user }) => {
         <Paragraph style={{ fontSize: '1.2rem', marginBottom: 30, maxWidth: '700px', marginLeft: 'auto', marginRight: 'auto' }}>
           Access study materials, videos, and learning resources shared by your instructors.
         </Paragraph>
-        <div className="search-container">
-          <Search
-            placeholder="Search resources, courses, materials..."
-            enterButton={<Button type="primary" size="large"><SearchOutlined /> Search</Button>}
-            size="large"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onSearch={value => console.log('Search:', value)}
-          />
-        </div>
       </div>
     </div>
   );
 
-  // Resources Section
+  // Resources List
   const ResourcesSection = () => (
     <div style={{ margin: '40px 0' }}>
       <Title level={2} style={{ marginBottom: 30 }}>Available Resources ({filteredResources.length})</Title>
+
       <Spin spinning={loading}>
         {filteredResources.length === 0 ? (
           <Empty description={loading ? 'Loading resources...' : 'No resources available'} />
@@ -114,23 +97,30 @@ const LMSPage = ({ user }) => {
                   <div style={{ textAlign: 'center', marginBottom: '16px' }}>
                     {getResourceIcon(resource.type)}
                   </div>
+
                   <div className="course-content">
                     <div>
                       <Tag color={resource.type === 'youtube_link' ? 'red' : 'blue'} style={{ marginBottom: 10 }}>
                         {resource.type.replace(/_/g, ' ').toUpperCase()}
                       </Tag>
-                      <Title level={4} className="course-title" style={{ marginBottom: '8px' }}>{resource.title}</Title>
+
+                      <Title level={4} className="course-title" style={{ marginBottom: '8px' }}>
+                        {resource.title}
+                      </Title>
+
                       {resource.description && (
                         <p style={{ fontSize: '12px', color: '#6b7280', marginBottom: '12px' }}>
                           {resource.description.substring(0, 60)}...
                         </p>
                       )}
+
                       {resource.course && (
                         <p style={{ fontSize: '12px', color: '#667eea', fontWeight: '500' }}>
                           Course: {resource.course.courseName}
                         </p>
                       )}
                     </div>
+
                     <div className="course-meta" style={{ marginTop: '12px', fontSize: '12px' }}>
                       {resource.uploadedBy?.personalDetails && (
                         <span>By {resource.uploadedBy.personalDetails.firstName}</span>
@@ -163,6 +153,7 @@ const LMSPage = ({ user }) => {
             <Tag color={selectedResource.type === 'youtube_link' ? 'red' : 'blue'}>
               {selectedResource.type.replace(/_/g, ' ').toUpperCase()}
             </Tag>
+
             {selectedResource.course && (
               <>
                 <Divider type="vertical" />
@@ -210,7 +201,10 @@ const LMSPage = ({ user }) => {
           {selectedResource.uploadedBy?.personalDetails && (
             <div style={{ marginTop: '24px', padding: '12px', background: '#f5f7fa', borderRadius: '8px' }}>
               <Text strong>Uploaded by: </Text>
-              <span>{selectedResource.uploadedBy.personalDetails.firstName} {selectedResource.uploadedBy.personalDetails.lastName}</span>
+              <span>
+                {selectedResource.uploadedBy.personalDetails.firstName}{' '}
+                {selectedResource.uploadedBy.personalDetails.lastName}
+              </span>
             </div>
           )}
 
@@ -224,7 +218,6 @@ const LMSPage = ({ user }) => {
     );
   };
 
-  // Main Component Render
   return (
     <div className="lms-container">
       <HeroSection />

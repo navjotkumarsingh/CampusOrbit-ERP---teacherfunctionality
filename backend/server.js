@@ -113,6 +113,7 @@ app.use("/api/exams", require("./routes/examRoutes"));
 app.use("/api/fees", require("./routes/feeRoutes"));
 app.use("/api/lms", require("./routes/lmsRoutes"));
 app.use("/api/messages", require("./routes/messageRoutes"));
+app.use("/api/messages", require("./routes/messageRoutes"));
 app.use("/api/timetable", require("./routes/timetableRoutes"));
 
 // Error handling middleware

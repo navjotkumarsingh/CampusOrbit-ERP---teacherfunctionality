@@ -1,76 +1,162 @@
-import { useState, useEffect } from 'react';
-import { Row, Col, Card, List, Button, Modal, Form, Input, message, Badge, Tag, Space, Empty } from 'antd';
-import { MailOutlined, SendOutlined, DeleteOutlined, CheckOutlined } from '@ant-design/icons';
+// FRONTEND/pages/MessagesPage.jsx
+import { useState, useEffect, useRef } from 'react';
+import { Row, Col, Card, List, Button, Modal, Form, Input, message, Badge, Tag, Space, Empty, Select } from 'antd';
+import { MailOutlined, SendOutlined, DeleteOutlined, CheckOutlined, NotificationOutlined } from '@ant-design/icons';
 import axios from 'axios';
+
+const { Option } = Select;
 
 const MessagesPage = ({ user }) => {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [composeModal, setComposeModal] = useState(false);
   const [composeForm] = Form.useForm();
-  const [selectedMessage, setSelectedMessage] = useState(null);
-  const [detailModal, setDetailModal] = useState(false);
+  const [page, setPage] = useState(1);
+  const [limit] = useState(25);
+  const [recipientOptions, setRecipientOptions] = useState([]);
+  const [recipientLoading, setRecipientLoading] = useState(false);
+  const [broadcastModal, setBroadcastModal] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const searchTimeout = useRef(null);
 
   useEffect(() => {
     fetchMessages();
-  }, []);
+    fetchUnreadCount();
+    const intv = setInterval(fetchUnreadCount, 30000); // every 30s
+    return () => clearInterval(intv);
+    // eslint-disable-next-line
+  }, [page]);
+
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('token');
+    return { Authorization: `Bearer ${token}` };
+  };
 
   const fetchMessages = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const response = await axios.get('/api/messages', { headers });
+      const headers = getAuthHeaders();
+      const response = await axios.get(`/api/messages/received?page=${page}&limit=${limit}`, { headers });
       setMessages(response.data.messages || []);
+      setUnreadCount(response.data.unreadCount ?? 0);
     } catch (error) {
+      console.error('fetchMessages error', error);
       message.error('Failed to load messages');
     } finally {
       setLoading(false);
     }
   };
 
+  const fetchUnreadCount = async () => {
+    try {
+      const headers = getAuthHeaders();
+      const res = await axios.get('/api/messages/unread-count', { headers });
+      if (res.data && typeof res.data.unreadCount === 'number') setUnreadCount(res.data.unreadCount);
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  // Remote search for recipients (role: Admin/Teacher/Student)
+  const searchRecipients = (role, q) => {
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    searchTimeout.current = setTimeout(async () => {
+      try {
+        setRecipientLoading(true);
+        const headers = getAuthHeaders();
+        const res = await axios.get(`/api/messages/users?role=${encodeURIComponent(role)}&search=${encodeURIComponent(q)}&limit=20`, { headers });
+        setRecipientOptions(res.data.users || []);
+      } catch (err) {
+        console.error('searchRecipients error', err);
+      } finally {
+        setRecipientLoading(false);
+      }
+    }, 300);
+  };
+
   const handleMarkAsRead = async (messageId) => {
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      await axios.put(`/api/messages/${messageId}/mark-as-read`, {}, { headers });
+      const headers = getAuthHeaders();
+      await axios.put(`/api/messages/${messageId}/read`, {}, { headers });
       fetchMessages();
+      fetchUnreadCount();
     } catch (error) {
+      console.error('mark read error', error);
       message.error('Failed to update message');
     }
   };
 
   const handleDelete = async (messageId) => {
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
+      const headers = getAuthHeaders();
       await axios.delete(`/api/messages/${messageId}`, { headers });
       message.success('Message deleted');
       fetchMessages();
+      fetchUnreadCount();
     } catch (error) {
+      console.error('delete message error', error);
       message.error('Failed to delete message');
     }
   };
 
   const handleCompose = async (values) => {
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-
-      await axios.post('/api/messages/send', values, { headers });
+      if (!values.recipient || !values.recipientModel) {
+        return message.error('Please select a recipient and type.');
+      }
+      const payload = {
+        recipient: values.recipient,
+        recipientModel: values.recipientModel,
+        subject: values.subject,
+        message: values.message,
+        messageType: "text",
+        priority: values.priority || "medium"
+      };
+      const headers = getAuthHeaders();
+      await axios.post('/api/messages/send', payload, { headers });
       message.success('Message sent successfully');
       composeForm.resetFields();
       setComposeModal(false);
       fetchMessages();
+      fetchUnreadCount();
     } catch (error) {
-      message.error('Failed to send message');
+      console.error('compose error', error);
+      const errMsg = error?.response?.data?.message || 'Failed to send message';
+      message.error(errMsg);
     }
   };
 
-  const unreadCount = messages.filter((m) => !m.isRead).length;
+  // Admin-only broadcast
+  const handleBroadcast = async (values) => {
+    try {
+      if (!values.message) return message.error('Enter message content');
+      const headers = getAuthHeaders();
+      await axios.post('/api/messages/send-broadcast', { subject: values.subject, message: values.message }, { headers });
+      message.success('Broadcast sent to all students');
+      setBroadcastModal(false);
+    } catch (err) {
+      console.error('broadcast error', err);
+      const errMsg = err?.response?.data?.message || 'Failed to send broadcast';
+      message.error(errMsg);
+    }
+  };
+
+  const isAdmin = () => {
+    const role = (user?.role || '').toLowerCase();
+    return role === 'admin' || role === 'superadmin';
+  };
+
+  const renderSenderName = (msg) => {
+    if (msg.senderName) return msg.senderName;
+    if (msg.sender && msg.sender.personalDetails) {
+      const pd = msg.sender.personalDetails;
+      if (pd.firstName || pd.lastName) return `${pd.firstName || ""} ${pd.lastName || ""}`.trim();
+    }
+    if (msg.sender && (msg.sender.firstName || msg.sender.lastName)) {
+      return `${msg.sender.firstName || ""} ${msg.sender.lastName || ""}`.trim();
+    }
+    return msg.sender?.email || msg.senderModel || 'Unknown';
+  };
 
   return (
     <div style={{ padding: '20px' }}>
@@ -85,13 +171,16 @@ const MessagesPage = ({ user }) => {
                 </h2>
               </Col>
               <Col>
-                <Button
-                  type="primary"
-                  icon={<SendOutlined />}
-                  onClick={() => setComposeModal(true)}
-                >
-                  Compose Message
-                </Button>
+                <Space>
+                  {isAdmin() && (
+                    <Button danger icon={<NotificationOutlined />} onClick={() => setBroadcastModal(true)}>
+                      Broadcast to All Students
+                    </Button>
+                  )}
+                  <Button type="primary" icon={<SendOutlined />} onClick={() => setComposeModal(true)}>
+                    Compose Message
+                  </Button>
+                </Space>
               </Col>
             </Row>
           </Card>
@@ -118,40 +207,24 @@ const MessagesPage = ({ user }) => {
                     extra={
                       <Space>
                         {!msg.isRead && (
-                          <Button
-                            type="text"
-                            icon={<CheckOutlined />}
-                            size="small"
-                            onClick={() => handleMarkAsRead(msg._id)}
-                          />
+                          <Button type="text" icon={<CheckOutlined />} size="small" onClick={() => handleMarkAsRead(msg._id)} />
                         )}
-                        <Button
-                          type="text"
-                          icon={<DeleteOutlined />}
-                          size="small"
-                          onClick={() => handleDelete(msg._id)}
-                          danger
-                        />
+                        <Button type="text" icon={<DeleteOutlined />} size="small" onClick={() => handleDelete(msg._id)} danger />
                       </Space>
                     }
                   >
                     <List.Item.Meta
                       title={
                         <Space>
-                          <span>{msg.subject}</span>
+                          <span>{msg.subject || '(No subject)'}</span>
                           {!msg.isRead && <Tag color="blue">New</Tag>}
                         </Space>
                       }
                       description={
                         <div>
-                          <p style={{ marginBottom: '4px' }}>From: {msg.from?.name || 'Admin'}</p>
-                          <p style={{ marginBottom: '4px' }}>
-                            {msg.message?.substring(0, 100)}
-                            {msg.message?.length > 100 ? '...' : ''}
-                          </p>
-                          <p style={{ color: '#999', fontSize: '12px' }}>
-                            {new Date(msg.createdAt).toLocaleDateString()} {new Date(msg.createdAt).toLocaleTimeString()}
-                          </p>
+                          <p style={{ marginBottom: '4px' }}>From: {renderSenderName(msg)}</p>
+                          <p style={{ marginBottom: '4px' }}>{msg.message?.substring(0, 150)}{msg.message?.length > 150 ? '...' : ''}</p>
+                          <p style={{ color: '#999', fontSize: '12px' }}>{new Date(msg.createdAt).toLocaleString()}</p>
                         </div>
                       }
                     />
@@ -181,50 +254,65 @@ const MessagesPage = ({ user }) => {
         </Col>
       </Row>
 
-      <Modal
-        title="Compose Message"
-        open={composeModal}
-        onCancel={() => {
-          setComposeModal(false);
-          composeForm.resetFields();
-        }}
-        footer={null}
-      >
-        <Form form={composeForm} layout="vertical" onFinish={handleCompose}>
-          <Form.Item
-            name="recipientId"
-            label="Send To"
-            rules={[{ required: true, message: 'Please select recipient' }]}
-          >
-            <select style={{ padding: '8px', borderRadius: '4px', border: '1px solid #d9d9d9', width: '100%' }}>
-              <option>Admin</option>
-              <option>Dean</option>
-              <option>Faculty</option>
-            </select>
+      {/* Compose Modal */}
+      <Modal title="Compose Message" open={composeModal} onCancel={() => { setComposeModal(false); composeForm.resetFields(); }} footer={null}>
+        <Form form={composeForm} layout="vertical" onFinish={handleCompose} initialValues={{ recipientModel: 'Admin', priority: 'medium' }}>
+          <Form.Item name="recipientModel" label="Recipient Type" rules={[{ required: true }]}>
+            <Select onChange={() => setRecipientOptions([])} >
+              <Option value="Admin">Admin</Option>
+              <Option value="Teacher">Teacher</Option>
+              <Option value="Student">Student</Option>
+            </Select>
           </Form.Item>
 
-          <Form.Item
-            name="subject"
-            label="Subject"
-            rules={[{ required: true, message: 'Please enter subject' }]}
-          >
-            <Input placeholder="Message subject" />
+          <Form.Item shouldUpdate={(prevValues, curValues) => prevValues.recipientModel !== curValues.recipientModel}>
+            {({ getFieldValue }) => (
+              <Form.Item name="recipient" label="Recipient" rules={[{ required: true, message: 'Select recipient' }]}>
+                <Select
+                  showSearch
+                  placeholder="Search recipients..."
+                  notFoundContent={recipientLoading ? "Searching..." : null}
+                  filterOption={false}
+                  onSearch={(val) => {
+                    const role = getFieldValue('recipientModel') || 'Admin';
+                    if (!val) {
+                      setRecipientOptions([]);
+                      return;
+                    }
+                    searchRecipients(role, val);
+                  }}
+                  loading={recipientLoading}
+                >
+                  {recipientOptions.map(opt => (
+                    <Option key={opt._id} value={opt._id}>
+                      {opt.name} {opt.email ? `(${opt.email})` : ''} {opt.employeeId ? `- ${opt.employeeId}` : ''}
+                    </Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            )}
           </Form.Item>
 
-          <Form.Item
-            name="message"
-            label="Message"
-            rules={[{ required: true, message: 'Please enter message' }]}
-          >
-            <Input.TextArea
-              placeholder="Type your message here..."
-              rows={5}
-            />
+          <Form.Item name="subject" label="Subject"><Input placeholder="Subject (optional)" /></Form.Item>
+
+          <Form.Item name="message" label="Message" rules={[{ required: true, message: 'Please enter message' }]}>
+            <Input.TextArea rows={5} placeholder="Write your message..." />
           </Form.Item>
 
-          <Button type="primary" htmlType="submit" block icon={<SendOutlined />}>
-            Send Message
-          </Button>
+          <Form.Item name="priority" label="Priority"><Select><Option value="low">Low</Option><Option value="medium">Medium</Option><Option value="high">High</Option></Select></Form.Item>
+
+          <Button type="primary" htmlType="submit" block icon={<SendOutlined />}>Send Message</Button>
+        </Form>
+      </Modal>
+
+      {/* Broadcast Modal (Admin only) */}
+      <Modal title="Broadcast to All Students" open={broadcastModal} onCancel={() => setBroadcastModal(false)} footer={null}>
+        <Form onFinish={handleBroadcast}>
+          <Form.Item name="subject" label="Subject"><Input placeholder="Broadcast subject (optional)" /></Form.Item>
+          <Form.Item name="message" label="Message" rules={[{ required: true, message: 'Enter message' }]}>
+            <Input.TextArea rows={4} />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" block>Send Broadcast</Button>
         </Form>
       </Modal>
     </div>

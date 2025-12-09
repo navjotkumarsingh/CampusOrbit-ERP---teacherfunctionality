@@ -1,3 +1,4 @@
+// BACKEND/models/Message.js
 const mongoose = require("mongoose");
 
 const messageSchema = new mongoose.Schema(
@@ -8,6 +9,7 @@ const messageSchema = new mongoose.Schema(
       required: true,
     },
     senderModel: {
+      // We treat superadmin as Admin in controller, so only these values are stored
       type: String,
       enum: ["Admin", "Teacher", "Student"],
       required: true,

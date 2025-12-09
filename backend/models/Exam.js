@@ -8,7 +8,10 @@ const examSchema = new mongoose.Schema(
     },
     examType: {
       type: String,
-      enum: ['midterm', 'final', 'internal', 'practical'],
+      enum: [
+              'midterm', 'final', 'internal', 'practical',
+              'Midterm', 'Final', 'Internal', 'Practical'
+            ],
       required: true,
     },
     course: {
